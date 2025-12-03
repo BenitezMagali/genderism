@@ -1,0 +1,529 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, addDoc, getDocs } from 'firebase/firestore';
+import { Rocket, Star, Zap, ClipboardList, X } from 'lucide-react';
+
+// --- Firebase Configuration & Setup ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// --- Components ---
+
+// 1. Background Star Field (Static & Twinkling)
+const StarField = () => {
+  return (
+    <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none bg-black">
+      {[...Array(100)].map((_, i) => (
+        <div
+          key={i}
+          className="absolute bg-white rounded-full opacity-80 animate-pulse"
+          style={{
+            top: `${Math.random() * 100}%`,
+            left: `${Math.random() * 100}%`,
+            width: `${Math.random() * 3}px`,
+            height: `${Math.random() * 3}px`,
+            animationDuration: `${Math.random() * 3 + 1}s`,
+            animationDelay: `${Math.random() * 2}s`
+          }}
+        />
+      ))}
+    </div>
+  );
+};
+
+// 2. Hyperspace Effect (Canvas)
+const Hyperspace = ({ onComplete }) => {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+
+    const stars = [];
+    const numStars = 1000;
+    const speed = 20;
+
+    for (let i = 0; i < numStars; i++) {
+      stars.push({
+        x: Math.random() * width - width / 2,
+        y: Math.random() * height - height / 2,
+        z: Math.random() * width
+      });
+    }
+
+    let animationFrameId;
+
+    const render = () => {
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, width, height);
+
+      stars.forEach(star => {
+        star.z -= speed;
+        if (star.z <= 0) {
+          star.z = width;
+          star.x = Math.random() * width - width / 2;
+          star.y = Math.random() * height - height / 2;
+        }
+
+        const x = (star.x / star.z) * width + width / 2;
+        const y = (star.y / star.z) * height + height / 2;
+        const size = (1 - star.z / width) * 4;
+
+        ctx.beginPath();
+        ctx.fillStyle = 'white';
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    render();
+
+    const timer = setTimeout(() => {
+        cancelAnimationFrame(animationFrameId);
+        onComplete();
+    }, 4500); // 4.5 seconds of travel
+
+    return () => {
+        cancelAnimationFrame(animationFrameId);
+        clearTimeout(timer);
+    };
+  }, [onComplete]);
+
+  return <canvas ref={canvasRef} className="fixed inset-0 z-50 bg-black" />;
+};
+
+// 3. Admin Modal (New Feature)
+const AdminModal = ({ onClose, fontStyle }) => {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchEntries = async () => {
+      try {
+        // Fetch all documents from the collection
+        // NOTE: We fetch all and sort in memory as per Rule 2 (no complex queries)
+        const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'gender_reveal_guesses'));
+        const data = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+
+        // Sort by timestamp descending (newest first)
+        data.sort((a, b) => {
+            const dateA = new Date(a.timestamp || 0);
+            const dateB = new Date(b.timestamp || 0);
+            return dateB - dateA;
+        });
+
+        setEntries(data);
+      } catch (error) {
+        console.error("Error fetching entries:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEntries();
+  }, []);
+
+  // Stats calculation
+  const jediCount = entries.filter(e => e.vote === 'jedi').length;
+  const princessCount = entries.filter(e => e.vote === 'princesa').length;
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black bg-opacity-90 flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="w-full max-w-3xl bg-gray-900 border-4 border-yellow-400 p-6 relative max-h-[80vh] flex flex-col">
+        <button 
+            onClick={onClose}
+            className="absolute top-4 right-4 text-red-500 hover:text-red-400"
+        >
+            <X size={32} />
+        </button>
+
+        <h2 style={fontStyle} className="text-yellow-400 text-xl md:text-2xl mb-6 text-center">
+            REGISTROS DEL HOLOCRÓN
+        </h2>
+
+        {/* Stats Header */}
+        <div className="flex justify-around mb-8 border-b-2 border-gray-700 pb-4">
+            <div className="text-center">
+                <p style={fontStyle} className="text-blue-400 text-sm mb-2">JEDI</p>
+                <p style={fontStyle} className="text-white text-xl">{jediCount}</p>
+            </div>
+            <div className="text-center">
+                <p style={fontStyle} className="text-pink-400 text-sm mb-2">PRINCESA</p>
+                <p style={fontStyle} className="text-white text-xl">{princessCount}</p>
+            </div>
+            <div className="text-center">
+                <p style={fontStyle} className="text-gray-400 text-sm mb-2">TOTAL</p>
+                <p style={fontStyle} className="text-white text-xl">{entries.length}</p>
+            </div>
+        </div>
+
+        {/* List */}
+        <div className="overflow-y-auto flex-1 pr-2 space-y-4 custom-scrollbar">
+            {loading ? (
+                <p style={fontStyle} className="text-center text-gray-500 animate-pulse mt-10">CARGANDO DATOS...</p>
+            ) : entries.length === 0 ? (
+                <p style={fontStyle} className="text-center text-gray-500 mt-10">AÚN NO HAY REGISTROS EN LA GALAXIA</p>
+            ) : (
+                entries.map((entry) => (
+                    <div key={entry.id} className="bg-gray-800 p-4 border-l-4 border-gray-600 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                        <div>
+                            <div className="flex items-center gap-2 mb-1">
+                                {entry.vote === 'jedi' ? (
+                                    <Zap size={16} className="text-blue-500" />
+                                ) : (
+                                    <Star size={16} className="text-pink-500" />
+                                )}
+                                <span style={fontStyle} className={`text-xs ${entry.vote === 'jedi' ? 'text-blue-400' : 'text-pink-400'}`}>
+                                    {entry.vote === 'jedi' ? 'LADO LUMINOSO' : 'LADO REAL'}
+                                </span>
+                            </div>
+                            <p style={fontStyle} className="text-white text-sm">
+                                {entry.nameSuggestion ? `"${entry.nameSuggestion}"` : '(Sin nombre sugerido)'}
+                            </p>
+                        </div>
+                        <span style={fontStyle} className="text-[10px] text-gray-500">
+                            {new Date(entry.timestamp).toLocaleDateString()} {new Date(entry.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </span>
+                    </div>
+                ))
+            )}
+        </div>
+      </div>
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #1f2937; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #eab308; 
+        }
+      `}</style>
+    </div>
+  );
+};
+
+// --- Main Application ---
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [stage, setStage] = useState('intro'); // 'intro', 'vote', 'travel', 'reveal'
+  const [nameSuggestion, setNameSuggestion] = useState('');
+  const [vote, setVote] = useState(null); // 'jedi' or 'princess'
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // New State for Admin
+  const [showAdmin, setShowAdmin] = useState(false);
+
+  // Auth Initialization
+  useEffect(() => {
+    const initAuth = async () => {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  // Handlers
+  const handleStart = () => setStage('vote');
+  
+  const handleSubmitVote = async (e) => {
+    e.preventDefault();
+    if (!vote) return;
+    
+    setIsSubmitting(true);
+
+    if (user) {
+      try {
+        // Save to public collection
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'gender_reveal_guesses'), {
+          vote,
+          nameSuggestion,
+          userId: user.uid,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        console.error("Error saving vote:", error);
+      }
+    }
+    
+    setStage('travel');
+    setIsSubmitting(false);
+  };
+
+  const handleTravelComplete = () => setStage('reveal');
+
+  // Styles
+  const fontStyle = { fontFamily: '"Press Start 2P", cursive' };
+
+  return (
+    <div className="min-h-screen bg-black text-yellow-400 flex flex-col items-center justify-center relative overflow-hidden selection:bg-yellow-400 selection:text-black">
+      {/* Import 8-bit Font */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        
+        .star-wars-crawl {
+            transform: perspective(300px) rotateX(20deg);
+            transform-origin: 50% 100%;
+            text-align: justify;
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+        }
+        
+        .crawl-content {
+            animation: crawl 35s linear forwards;
+            position: relative;
+            top: -100px;
+            width: 90%;
+            max-width: 600px;
+            font-size: 150%;
+            text-align: center;
+            line-height: 1.5;
+            color: #ffe81f;
+        }
+
+        @keyframes crawl {
+            0% { top: 100%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: -200%; opacity: 0; }
+        }
+
+        .lightsaber-container {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .hilt {
+            width: 20px;
+            height: 60px;
+            background: #d1d5db;
+            border: 2px solid #374151;
+            border-radius: 2px;
+            position: relative;
+            z-index: 10;
+        }
+        
+        .hilt::after {
+            content: '';
+            position: absolute;
+            top: 10px;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: #000;
+        }
+
+        .blade {
+            width: 16px;
+            background: white;
+            height: 0;
+            transition: height 1s ease-out;
+            border-radius: 8px 8px 0 0;
+            position: relative;
+            bottom: -5px;
+            z-index: 5;
+            box-shadow: 0 0 10px #2563eb, 0 0 20px #2563eb, 0 0 30px #2563eb, 0 0 40px #2563eb;
+        }
+
+        .blade.active {
+            height: 300px;
+            background: #e0f2fe; /* light blue core */
+            box-shadow: 0 0 10px #3b82f6, 0 0 20px #3b82f6, 0 0 40px #3b82f6, 0 0 60px #3b82f6; /* Blue glow */
+        }
+        
+        .nes-btn {
+            border-image-slice: 2;
+            border-image-width: 2;
+            border-image-repeat: stretch;
+            border-image-source: url('data:image/svg+xml;utf8,<?xml version="1.0" encoding="UTF-8" ?><svg version="1.1" width="5" height="5" xmlns="http://www.w3.org/2000/svg"><path d="M2 1 h1 v1 h-1 z M1 2 h1 v1 h-1 z M3 2 h1 v1 h-1 z M2 3 h1 v1 h-1 z" fill="rgb(33,37,41)" /></svg>');
+            border-style: solid;
+            border-width: 4px;
+        }
+      `}</style>
+
+      <StarField />
+
+      {/* --- STAGE 1: INTRO --- */}
+      {stage === 'intro' && (
+        <div className="z-10 w-full h-screen flex flex-col items-center justify-center relative">
+            <div className="absolute top-10 text-center animate-pulse z-20">
+                <h1 style={fontStyle} className="text-yellow-400 text-2xl md:text-4xl mb-4 leading-loose">
+                    STAR<br/>WARS
+                </h1>
+                <p style={fontStyle} className="text-xs text-blue-300">GENDER REVEAL EPISODE</p>
+            </div>
+
+            <div className="star-wars-crawl mask-image-gradient">
+                <div className="crawl-content" style={fontStyle}>
+                    <p className="mb-8">EPISODIO I</p>
+                    <p className="mb-8">LA NUEVA ESPERANZA</p>
+                    <p className="mb-8">
+                        Hace un tiempo, en una galaxia muy, muy lejana, un nuevo miembro se une a nuestra aventura...
+                    </p>
+                    <p className="mb-8">
+                        La fuerza es intensa en nuestra familia, pero el equilibrio aún no ha sido revelado.
+                    </p>
+                    <p>
+                        Para conocer su destino, nos deberás acompañar en este viaje a través de las estrellas...
+                    </p>
+                </div>
+            </div>
+
+            <button 
+                onClick={handleStart}
+                style={fontStyle}
+                className="absolute bottom-20 z-30 bg-yellow-400 text-black px-6 py-4 hover:bg-yellow-300 active:scale-95 transition-transform border-4 border-white"
+            >
+                COMENZAR AVENTURA
+            </button>
+        </div>
+      )}
+
+      {/* --- STAGE 2: VOTE --- */}
+      {stage === 'vote' && (
+        <div className="z-10 w-full max-w-2xl px-4 flex flex-col items-center animate-in fade-in duration-700">
+            <h2 style={fontStyle} className="text-xl md:text-2xl text-center mb-12 text-yellow-400 leading-relaxed">
+                ELIGE TU BANDO
+            </h2>
+
+            <form onSubmit={handleSubmitVote} className="w-full flex flex-col items-center gap-8">
+                
+                <div className="flex flex-col md:flex-row gap-6 w-full justify-center">
+                    {/* Jedi Option */}
+                    <button
+                        type="button"
+                        onClick={() => setVote('jedi')}
+                        className={`group relative p-6 border-4 transition-all duration-300 w-full md:w-1/2 flex flex-col items-center gap-4 ${vote === 'jedi' ? 'border-blue-500 bg-gray-900' : 'border-gray-600 hover:border-blue-400'}`}
+                    >
+                        <Zap className={`w-12 h-12 ${vote === 'jedi' ? 'text-blue-500' : 'text-gray-500'}`} />
+                        <span style={fontStyle} className={`text-sm ${vote === 'jedi' ? 'text-blue-400' : 'text-gray-400'}`}>JEDI</span>
+                        {vote === 'jedi' && <div className="absolute top-2 right-2 text-blue-500 text-xs" style={fontStyle}>OK</div>}
+                    </button>
+
+                    {/* Princess Option */}
+                    <button
+                        type="button"
+                        onClick={() => setVote('princesa')}
+                        className={`group relative p-6 border-4 transition-all duration-300 w-full md:w-1/2 flex flex-col items-center gap-4 ${vote === 'princesa' ? 'border-pink-500 bg-gray-900' : 'border-gray-600 hover:border-pink-400'}`}
+                    >
+                        <Star className={`w-12 h-12 ${vote === 'princesa' ? 'text-pink-500' : 'text-gray-500'}`} />
+                        <span style={fontStyle} className={`text-sm ${vote === 'princesa' ? 'text-pink-400' : 'text-gray-400'}`}>PRINCESA</span>
+                        {vote === 'princesa' && <div className="absolute top-2 right-2 text-pink-500 text-xs" style={fontStyle}>OK</div>}
+                    </button>
+                </div>
+
+                <div className="w-full mt-4">
+                    <label style={fontStyle} className="block text-xs mb-4 text-center text-gray-400">
+                        SUGIERE UN NOMBRE (OPCIONAL)
+                    </label>
+                    <input
+                        type="text"
+                        maxLength={20}
+                        value={nameSuggestion}
+                        onChange={(e) => setNameSuggestion(e.target.value)}
+                        className="w-full bg-black border-b-4 border-yellow-600 p-4 text-center text-white outline-none focus:border-yellow-400 transition-colors"
+                        style={fontStyle}
+                        placeholder="..."
+                    />
+                </div>
+
+                <button
+                    type="submit"
+                    disabled={!vote || isSubmitting}
+                    style={fontStyle}
+                    className={`mt-8 px-8 py-4 border-4 text-sm transition-all
+                        ${!vote || isSubmitting 
+                            ? 'border-gray-700 text-gray-700 cursor-not-allowed' 
+                            : 'border-white bg-blue-900 hover:bg-blue-800 text-white animate-pulse'}`}
+                >
+                    {isSubmitting ? 'ENVIANDO...' : 'DESCUBRIR DESTINO'}
+                </button>
+
+            </form>
+        </div>
+      )}
+
+      {/* --- STAGE 3: TRAVEL --- */}
+      {stage === 'travel' && (
+        <Hyperspace onComplete={handleTravelComplete} />
+      )}
+
+      {/* --- STAGE 4: REVEAL --- */}
+      {stage === 'reveal' && (
+        <div className="z-10 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-1000 p-4">
+            
+            <div className="lightsaber-container mb-12">
+                <div className="blade active"></div>
+                <div className="hilt"></div>
+            </div>
+
+            <div className="text-center space-y-6">
+                <h1 style={fontStyle} className="text-3xl md:text-5xl text-blue-400 drop-shadow-[0_0_10px_rgba(59,130,246,0.8)] animate-bounce">
+                    ¡ES UN NIÑO!
+                </h1>
+                
+                <p style={fontStyle} className="text-white text-sm md:text-base mt-8 leading-loose max-w-md mx-auto">
+                    QUE LA FUERZA LO ACOMPAÑE
+                </p>
+
+                {nameSuggestion && (
+                    <div className="mt-12 p-4 border-2 border-gray-800 rounded bg-gray-900 bg-opacity-50">
+                        <p style={fontStyle} className="text-[10px] text-gray-500 mb-2">TU SUGERENCIA:</p>
+                        <p style={fontStyle} className="text-yellow-400 text-xs">{nameSuggestion}</p>
+                    </div>
+                )}
+            </div>
+
+            <button 
+                onClick={() => window.location.reload()}
+                style={fontStyle}
+                className="mt-16 text-[10px] text-gray-600 hover:text-white transition-colors"
+            >
+                REINICIAR SISTEMA
+            </button>
+        </div>
+      )}
+
+      {/* ADMIN TOGGLE BUTTON - Always visible but discreet */}
+      <button 
+        onClick={() => setShowAdmin(true)}
+        className="fixed bottom-4 right-4 z-50 text-gray-700 hover:text-white transition-colors p-2 bg-black bg-opacity-50 rounded-full"
+        title="Ver Registros"
+      >
+        <ClipboardList size={20} />
+      </button>
+
+      {/* ADMIN MODAL */}
+      {showAdmin && <AdminModal onClose={() => setShowAdmin(false)} fontStyle={fontStyle} />}
+
+    </div>
+  );
+}
