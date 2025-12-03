@@ -5,7 +5,15 @@ import { getFirestore, collection, addDoc, getDocs } from 'firebase/firestore';
 import { Rocket, Star, Zap, ClipboardList, X } from 'lucide-react';
 
 // --- Firebase Configuration & Setup ---
-const firebaseConfig = JSON.parse(__firebase_config);
+const firebaseConfig = {
+  apiKey: "AIzaSyC6RA4ZNfB8s8XmlWTfnQa3yKEsEoB_fCA",
+  authDomain: "genderism-94757.firebaseapp.com",
+  projectId: "genderism-94757",
+  storageBucket: "genderism-94757.firebasestorage.app",
+  messagingSenderId: "864123595524",
+  appId: "1:864123595524:web:0f3ff01b1f980bf731fe51",
+  measurementId: "G-6NB5XB7CVH"
+};
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
